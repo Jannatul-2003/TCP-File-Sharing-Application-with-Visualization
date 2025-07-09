@@ -146,8 +146,8 @@ Real-time graphs displaying:
 ### Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/tcp-file-sharing.git
-   cd tcp-file-sharing
+   git clone https://github.com/Jannatul-2003/TCP-File-Sharing-Application-with-Visualization.git
+   cd TCP-File-Sharing-Application-with-Visualization
    ```
 
 2. Install dependencies:
