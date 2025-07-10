@@ -1,4 +1,3 @@
-// package com.example.cn;
 package com.example.cn;
 
 import javafx.application.Application;
@@ -23,14 +22,13 @@ import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class TCPFileTransferServer extends Application {
-
     private static int SERVER_PORT = 8080;
     private static final String UPLOAD_DIR = "uploads";
     private static final int PACKET_SIZE = 1024;
@@ -52,9 +50,7 @@ public class TCPFileTransferServer extends Application {
     @Override
     public void start(Stage primaryStage) {
         initializeServer();
-
-        primaryStage.setTitle("TCP File Transfer Server - Multi-Client Real Algorithm Visualizer");
-
+        primaryStage.setTitle("TCP File Transfer Server - Multi-Client Real Network Visualizer");
         BorderPane root = new BorderPane();
 
         // Control panel
@@ -70,7 +66,6 @@ public class TCPFileTransferServer extends Application {
         VBox logSection = createLogSection();
         root.setBottom(logSection);
 
-        // Reduce window size for better fit on most screens
         Scene scene = new Scene(root, 1200, 800);
         primaryStage.setScene(scene);
         primaryStage.show();
@@ -88,7 +83,6 @@ public class TCPFileTransferServer extends Application {
         threadPool = Executors.newCachedThreadPool();
         activeSessions = new ConcurrentHashMap<>();
         logMessages = FXCollections.observableArrayList();
-
         uploadDirectory = new File(UPLOAD_DIR);
         if (!uploadDirectory.exists()) {
             uploadDirectory.mkdirs();
@@ -103,39 +97,30 @@ public class TCPFileTransferServer extends Application {
         // Server status row
         HBox statusRow = new HBox(10);
         statusRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-
         Label serverStatusLabel = new Label("Server Status: ");
         serverStatusLabel.setStyle("-fx-font-weight: bold;");
         statusIndicator = new Label("STARTING...");
         statusIndicator.setStyle("-fx-text-fill: orange; -fx-font-weight: bold;");
-
         Label portLabel = new Label("Port: " + SERVER_PORT);
         portLabel.setStyle("-fx-font-weight: bold;");
-
-        statusRow.getChildren().addAll(serverStatusLabel, statusIndicator,
-                new Separator(), portLabel);
+        statusRow.getChildren().addAll(serverStatusLabel, statusIndicator, new Separator(), portLabel);
 
         // Directory selection row
         HBox dirRow = new HBox(10);
         dirRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-
         Button selectUploadDir = new Button("Select Upload Directory");
         selectUploadDir.setOnAction(e -> selectUploadDirectory());
-
         uploadDirLabel = new Label("Upload Dir: " + uploadDirectory.getAbsolutePath());
         uploadDirLabel.setStyle("-fx-font-size: 11px;");
-
         dirRow.getChildren().addAll(selectUploadDir, uploadDirLabel);
 
         // Active clients row
         HBox clientsRow = new HBox(10);
         clientsRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
-
         Label activeClientsLabel = new Label("Active Clients: ");
         activeClientsLabel.setStyle("-fx-font-weight: bold;");
         Label clientCountLabel = new Label("0");
         clientCountLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: blue;");
-
         clientsRow.getChildren().addAll(activeClientsLabel, clientCountLabel);
 
         // Update client count periodically
@@ -152,14 +137,11 @@ public class TCPFileTransferServer extends Application {
     private VBox createLogSection() {
         VBox logSection = new VBox(5);
         logSection.setPadding(new Insets(10));
-
         Label logLabel = new Label("Server Log:");
         logLabel.setStyle("-fx-font-weight: bold;");
-
         logListView = new ListView<>(logMessages);
         logListView.setPrefHeight(120);
         logListView.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
-
         logSection.getChildren().addAll(logLabel, logListView);
         return logSection;
     }
@@ -168,9 +150,7 @@ public class TCPFileTransferServer extends Application {
         DirectoryChooser directoryChooser = new DirectoryChooser();
         directoryChooser.setTitle("Select Upload Directory");
         directoryChooser.setInitialDirectory(uploadDirectory);
-
         File selectedDirectory = directoryChooser.showDialog(null);
-
         if (selectedDirectory != null) {
             uploadDirectory = selectedDirectory;
             uploadDirLabel.setText("Upload Dir: " + uploadDirectory.getAbsolutePath());
@@ -186,42 +166,48 @@ public class TCPFileTransferServer extends Application {
                     selector = Selector.open();
                     serverChannel = ServerSocketChannel.open();
                     serverChannel.configureBlocking(false);
+
+                    // Configure socket options for real network performance
+                    serverChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
                     serverChannel.bind(new InetSocketAddress(SERVER_PORT));
                     serverChannel.register(selector, SelectionKey.OP_ACCEPT);
 
                     running = true;
                     addLogMessage("Server started on port " + SERVER_PORT);
-
                     Platform.runLater(() -> {
                         statusIndicator.setText("RUNNING");
                         statusIndicator.setStyle("-fx-text-fill: green; -fx-font-weight: bold;");
                     });
 
                     while (running && !isCancelled()) {
-                        selector.select(1000); // 1 second timeout
+                        int readyChannels = selector.select(100);
 
-                        Set<SelectionKey> selectedKeys = selector.selectedKeys();
-                        Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
+                        if (readyChannels > 0) {
+                            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+                            Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
 
-                        while (keyIterator.hasNext()) {
-                            SelectionKey key = keyIterator.next();
-                            keyIterator.remove();
+                            while (keyIterator.hasNext()) {
+                                SelectionKey key = keyIterator.next();
+                                keyIterator.remove();
 
-                            try {
-                                if (key.isAcceptable()) {
-                                    handleAccept();
-                                } else if (key.isReadable()) {
-                                    handleRead(key);
-                                } else if (key.isWritable()) {
-                                    handleWrite(key);
+                                try {
+                                    if (key.isAcceptable()) {
+                                        handleAccept();
+                                    } else if (key.isReadable()) {
+                                        handleRead(key);
+                                    } else if (key.isWritable()) {
+                                        handleWrite(key);
+                                    }
+                                } catch (IOException e) {
+                                    addLogMessage("Error handling client operation: " + e.getMessage());
+                                    cleanupClient(key);
                                 }
-                            } catch (IOException e) {
-                                addLogMessage("Error handling client operation: " + e.getMessage());
-                                cleanupClient(key);
                             }
                         }
-                    }
 
+                        // Check for dead connections
+                        checkDeadConnections();
+                    }
                 } catch (IOException e) {
                     if (running) {
                         addLogMessage("Server error: " + e.getMessage());
@@ -244,17 +230,21 @@ public class TCPFileTransferServer extends Application {
         if (clientChannel != null) {
             clientChannel.configureBlocking(false);
 
+            // Configure socket options for optimal performance
+            clientChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+            clientChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
+            clientChannel.setOption(StandardSocketOptions.SO_RCVBUF, 65536);
+            clientChannel.setOption(StandardSocketOptions.SO_SNDBUF, 65536);
+
             String clientAddress = clientChannel.getRemoteAddress().toString();
             int clientNumber = clientCounter.incrementAndGet();
             String clientId = "Client-" + clientNumber + " (" + clientAddress + ")";
 
             ClientSession session = new ClientSession(clientChannel, clientId);
-
             SelectionKey clientKey = clientChannel.register(selector, SelectionKey.OP_READ);
             clientKey.attach(session);
 
             activeSessions.put(clientChannel, session);
-
             Platform.runLater(() -> createClientVisualizationTab(clientId, session));
             addLogMessage("New client connected: " + clientId);
         }
@@ -265,12 +255,13 @@ public class TCPFileTransferServer extends Application {
         SocketChannel clientChannel = (SocketChannel) key.channel();
 
         try {
-            ByteBuffer buffer = ByteBuffer.allocate(4096);
+            ByteBuffer buffer = ByteBuffer.allocate(8192);
             int bytesRead = clientChannel.read(buffer);
 
             if (bytesRead > 0) {
                 buffer.flip();
                 session.handleIncomingData(buffer);
+                session.updateLastActivity();
             } else if (bytesRead == -1) {
                 // Client disconnected
                 handleClientDisconnect(clientChannel, session);
@@ -286,15 +277,32 @@ public class TCPFileTransferServer extends Application {
         SocketChannel clientChannel = (SocketChannel) key.channel();
 
         try {
-            session.handleOutgoingData(clientChannel);
-
-            // If no more data to write, remove write interest
-            if (!session.hasDataToWrite()) {
+            boolean hasMoreData = session.handleOutgoingData(clientChannel);
+            if (!hasMoreData) {
                 key.interestOps(SelectionKey.OP_READ);
             }
         } catch (IOException e) {
             addLogMessage("Error writing to client " + session.getClientId() + ": " + e.getMessage());
             handleClientDisconnect(clientChannel, session);
+        }
+    }
+
+    private void checkDeadConnections() {
+        long currentTime = System.currentTimeMillis();
+        List<SocketChannel> deadConnections = new ArrayList<>();
+
+        for (Map.Entry<SocketChannel, ClientSession> entry : activeSessions.entrySet()) {
+            ClientSession session = entry.getValue();
+            if (currentTime - session.getLastActivity() > 60000) { // 60 seconds timeout
+                deadConnections.add(entry.getKey());
+            }
+        }
+
+        for (SocketChannel channel : deadConnections) {
+            SelectionKey key = channel.keyFor(selector);
+            if (key != null) {
+                cleanupClient(key);
+            }
         }
     }
 
@@ -314,8 +322,10 @@ public class TCPFileTransferServer extends Application {
                 clientChannel.close();
 
                 if (session != null) {
+                    session.close();
                     Platform.runLater(() -> {
-                        clientVisualizationTabs.getTabs().removeIf(tab -> tab.getText().equals(session.getClientId()));
+                        clientVisualizationTabs.getTabs().removeIf(tab ->
+                                tab.getText().equals(session.getClientId()));
                     });
                 }
             } catch (IOException e) {
@@ -345,7 +355,6 @@ public class TCPFileTransferServer extends Application {
         VBox chartsSection = createChartsSection(session);
 
         tabContent.getChildren().addAll(algorithmSection, topSection, chartsSection);
-
         scrollPane.setContent(tabContent);
         clientTab.setContent(scrollPane);
         clientVisualizationTabs.getTabs().add(clientTab);
@@ -363,20 +372,12 @@ public class TCPFileTransferServer extends Application {
         Label algorithmLabel = new Label("TCP Algorithm: ");
         algorithmLabel.setStyle("-fx-font-weight: bold;");
 
-        ComboBox<String> algorithmSelector = new ComboBox<>();
-        algorithmSelector.getItems().addAll("TCP_RENO", "TCP_TAHOE", "TCP_CUBIC", "TCP_VEGAS");
-        algorithmSelector.setValue("TCP_RENO");
-        algorithmSelector.setOnAction(e -> {
-            String selected = algorithmSelector.getValue();
-            session.setTcpAlgorithm(selected);
-        });
 
         Label currentAlgorithm = new Label("TCP_RENO");
         currentAlgorithm.setStyle("-fx-font-weight: bold; -fx-text-fill: #1e88e5;");
-
         session.setAlgorithmLabel(currentAlgorithm);
 
-        algorithmSection.getChildren().addAll(algorithmLabel, algorithmSelector,
+        algorithmSection.getChildren().addAll(algorithmLabel,
                 new Separator(), new Label("Current:"), currentAlgorithm);
         return algorithmSection;
     }
@@ -462,7 +463,6 @@ public class TCPFileTransferServer extends Application {
         // Layout charts in 2x2 grid
         HBox chartsRow1 = new HBox(10);
         chartsRow1.getChildren().addAll(rttChart, cwndChart);
-
         HBox chartsRow2 = new HBox(10);
         chartsRow2.getChildren().addAll(throughputChart, packetLossChart);
 
@@ -531,11 +531,9 @@ public class TCPFileTransferServer extends Application {
         Platform.runLater(() -> {
             String timestamp = new SimpleDateFormat("HH:mm:ss.SSS").format(new Date());
             logMessages.add(timestamp + " - " + message);
-
             if (logMessages.size() > 500) {
                 logMessages.remove(0);
             }
-
             if (logListView != null) {
                 logListView.scrollTo(logMessages.size() - 1);
             }
@@ -543,14 +541,10 @@ public class TCPFileTransferServer extends Application {
     }
 
     private String formatFileSize(long size) {
-        if (size < 1024)
-            return size + " bytes";
-        else if (size < 1024 * 1024)
-            return String.format("%.2f KB", size / 1024.0);
-        else if (size < 1024 * 1024 * 1024)
-            return String.format("%.2f MB", size / (1024.0 * 1024));
-        else
-            return String.format("%.2f GB", size / (1024.0 * 1024 * 1024));
+        if (size < 1024) return size + " bytes";
+        else if (size < 1024 * 1024) return String.format("%.2f KB", size / 1024.0);
+        else if (size < 1024 * 1024 * 1024) return String.format("%.2f MB", size / (1024.0 * 1024));
+        else return String.format("%.2f GB", size / (1024.0 * 1024 * 1024));
     }
 
     // Inner class for client session management
@@ -561,6 +555,8 @@ public class TCPFileTransferServer extends Application {
         private RealTCPController tcpController;
         private Queue<ByteBuffer> writeQueue = new ConcurrentLinkedQueue<>();
         private Timeline visualizationTimer;
+        private AtomicLong lastActivity = new AtomicLong(System.currentTimeMillis());
+        private StringBuilder messageBuffer = new StringBuilder();
 
         // Visualization components
         private Label rttLabel, cwndLabel, ssthreshLabel, throughputLabel, packetLossLabel, rwndLabel;
@@ -578,8 +574,15 @@ public class TCPFileTransferServer extends Application {
             this.tcpController = new RealTCPController(tcpAlgorithm);
         }
 
-        public void setMetricsLabels(Label rtt, Label cwnd, Label ssthresh, Label throughput, Label packetLoss,
-                Label rwnd) {
+        public void updateLastActivity() {
+            lastActivity.set(System.currentTimeMillis());
+        }
+
+        public long getLastActivity() {
+            return lastActivity.get();
+        }
+
+        public void setMetricsLabels(Label rtt, Label cwnd, Label ssthresh, Label throughput, Label packetLoss, Label rwnd) {
             this.rttLabel = rtt;
             this.cwndLabel = cwnd;
             this.ssthreshLabel = ssthresh;
@@ -596,7 +599,7 @@ public class TCPFileTransferServer extends Application {
         }
 
         public void setCharts(LineChart<Number, Number> rtt, LineChart<Number, Number> cwnd,
-                LineChart<Number, Number> throughput, LineChart<Number, Number> packetLoss) {
+                              LineChart<Number, Number> throughput, LineChart<Number, Number> packetLoss) {
             this.rttChart = rtt;
             this.cwndChart = cwnd;
             this.throughputChart = throughput;
@@ -614,54 +617,73 @@ public class TCPFileTransferServer extends Application {
         }
 
         public void handleIncomingData(ByteBuffer buffer) {
-            if (!active)
-                return;
+            if (!active) return;
 
-            // Process incoming messages
+            // Process incoming messages with proper buffering
             byte[] data = new byte[buffer.remaining()];
             buffer.get(data);
-            String message = new String(data).trim();
+            String incomingData = new String(data);
+            messageBuffer.append(incomingData);
 
-            if (!message.isEmpty()) {
-                processClientMessage(message);
+            // Process complete messages (ending with newline)
+            String bufferContent = messageBuffer.toString();
+            String[] lines = bufferContent.split("\\r?\\n");
+
+            // Process all complete lines except the last one (which might be incomplete)
+            for (int i = 0; i < lines.length; i++) {
+                String message = lines[i].trim();
+                if (!message.isEmpty()) {
+                    // Check if this is the last line and buffer doesn't end with newline
+                    if (i == lines.length - 1 && !bufferContent.endsWith("\n") && !bufferContent.endsWith("\r\n")) {
+                        // This is an incomplete message, keep it in buffer
+                        messageBuffer.setLength(0);
+                        messageBuffer.append(message);
+                        break;
+                    } else {
+                        // Complete message, process it
+                        processClientMessage(message);
+                    }
+                }
+            }
+
+            // If buffer ended with newline, clear the buffer completely
+            if (bufferContent.endsWith("\n") || bufferContent.endsWith("\r\n")) {
+                messageBuffer.setLength(0);
             }
         }
 
-        public void handleOutgoingData(SocketChannel channel) throws IOException {
-            if (!active)
-                return;
+        public boolean handleOutgoingData(SocketChannel channel) throws IOException {
+            if (!active) return false;
+
+            boolean hasMoreData = false;
 
             while (!writeQueue.isEmpty()) {
                 ByteBuffer buffer = writeQueue.peek();
-
                 int bytesWritten = channel.write(buffer);
+
                 if (bytesWritten > 0) {
-                    tcpController.onDataSent(bytesWritten);
+                    tcpController.onDataSent(bytesWritten, System.currentTimeMillis());
                 }
 
                 if (buffer.hasRemaining()) {
-                    // Buffer not fully written, will try again later
+                    hasMoreData = true;
                     break;
                 } else {
-                    writeQueue.poll(); // Remove fully written buffer
+                    writeQueue.poll();
                 }
             }
-        }
 
-        public boolean hasDataToWrite() {
-            return !writeQueue.isEmpty() && active;
+            return hasMoreData;
         }
 
         public void setTcpAlgorithm(String algorithm) {
             this.tcpAlgorithm = algorithm;
             this.tcpController.setAlgorithm(algorithm);
-
             Platform.runLater(() -> {
                 if (algorithmLabel != null) {
                     algorithmLabel.setText(algorithm);
                 }
             });
-
             addLogMessage("Client " + clientId + " switched to " + algorithm);
         }
 
@@ -684,12 +706,13 @@ public class TCPFileTransferServer extends Application {
         }
 
         private void processClientMessage(String message) {
+            addLogMessage("Received from " + clientId + ": " + message);
+
             String[] parts = message.split(":", 2);
-            if (parts.length < 2)
-                return;
+            if (parts.length < 1) return;
 
             String command = parts[0].trim();
-            String data = parts[1].trim();
+            String data = parts.length > 1 ? parts[1].trim() : "";
 
             switch (command) {
                 case "LIST_FILES":
@@ -704,11 +727,8 @@ public class TCPFileTransferServer extends Application {
                 case "UPLOAD_DATA":
                     handleUploadData(data);
                     break;
-                case "ACK":
-                    handleAcknowledgment(data);
-                    break;
-                case "NACK":
-                    handleNegativeAcknowledgment(data);
+                case "ALGORITHM":
+                    setTcpAlgorithm(data);
                     break;
                 case "PING":
                     sendMessage("PONG:" + System.currentTimeMillis());
@@ -721,7 +741,6 @@ public class TCPFileTransferServer extends Application {
         private void sendFileList() {
             StringBuilder response = new StringBuilder("FILE_LIST:");
             File[] files = uploadDirectory.listFiles();
-
             if (files != null) {
                 for (File file : files) {
                     if (file.isFile()) {
@@ -731,8 +750,8 @@ public class TCPFileTransferServer extends Application {
                     }
                 }
             }
-
             sendMessage(response.toString());
+            addLogMessage("Sent file list to " + clientId);
         }
 
         private void handleDownloadRequest(String filename) {
@@ -743,14 +762,10 @@ public class TCPFileTransferServer extends Application {
             }
 
             transferState.startDownload(file);
-
             Platform.runLater(() -> {
-                if (transferStatus != null)
-                    transferStatus.setText("Downloading: " + filename);
-                if (transferFile != null)
-                    transferFile.setText("File: " + filename);
-                if (transferProgress != null)
-                    transferProgress.setProgress(0);
+                if (transferStatus != null) transferStatus.setText("Downloading: " + filename);
+                if (transferFile != null) transferFile.setText("File: " + filename);
+                if (transferProgress != null) transferProgress.setProgress(0);
             });
 
             // Start file transfer in separate thread
@@ -759,42 +774,40 @@ public class TCPFileTransferServer extends Application {
 
         private void handleUploadRequest(String data) {
             String[] parts = data.split(";");
-            if (parts.length < 2)
-                return;
+            if (parts.length < 2) return;
 
             String filename = parts[0];
             long fileSize = Long.parseLong(parts[1]);
 
             transferState.startUpload(filename, fileSize);
-
             Platform.runLater(() -> {
-                if (transferStatus != null)
-                    transferStatus.setText("Uploading: " + filename);
-                if (transferFile != null)
-                    transferFile.setText("File: " + filename);
-                if (transferProgress != null)
-                    transferProgress.setProgress(0);
+                if (transferStatus != null) transferStatus.setText("Uploading: " + filename);
+                if (transferFile != null) transferFile.setText("File: " + filename);
+                if (transferProgress != null) transferProgress.setProgress(0);
             });
 
             sendMessage("UPLOAD_READY:" + filename);
         }
 
         private void handleUploadData(String data) {
-            // Handle incoming file data during upload
-            // This is a simplified implementation
-            byte[] fileData = Base64.getDecoder().decode(data);
-            transferState.addUploadData(fileData);
+            try {
+                byte[] fileData = Base64.getDecoder().decode(data);
+                transferState.addUploadData(fileData);
 
-            // Update progress
-            Platform.runLater(() -> {
-                if (transferProgress != null) {
-                    double progress = (double) transferState.getTransferred() / transferState.getFileSize();
-                    transferProgress.setProgress(progress);
+                // Update progress
+                Platform.runLater(() -> {
+                    if (transferProgress != null) {
+                        double progress = (double) transferState.getTransferred() / transferState.getFileSize();
+                        transferProgress.setProgress(progress);
+                    }
+                });
+
+                if (transferState.isUploadComplete()) {
+                    saveUploadedFile();
                 }
-            });
-
-            if (transferState.isUploadComplete()) {
-                saveUploadedFile();
+            } catch (Exception e) {
+                addLogMessage("Error processing upload data: " + e.getMessage());
+                sendMessage("ERROR:Failed to process upload data");
             }
         }
 
@@ -804,33 +817,21 @@ public class TCPFileTransferServer extends Application {
                 try (FileOutputStream fos = new FileOutputStream(outputFile)) {
                     fos.write(transferState.getUploadData());
                 }
-
                 Platform.runLater(() -> {
-                    if (transferStatus != null)
-                        transferStatus.setText("Upload completed");
+                    if (transferStatus != null) transferStatus.setText("Upload completed");
                 });
-
                 sendMessage("UPLOAD_COMPLETE:" + transferState.getFilename());
                 addLogMessage("File uploaded by " + clientId + ": " + transferState.getFilename());
-
             } catch (IOException e) {
                 addLogMessage("Error saving uploaded file: " + e.getMessage());
                 sendMessage("ERROR:Failed to save file");
             }
         }
 
-        private void handleAcknowledgment(String data) {
-            // Parse ACK data (sequence number, timestamp, etc.)
-            tcpController.onAckReceived(System.currentTimeMillis());
-        }
-
-        private void handleNegativeAcknowledgment(String data) {
-            // Handle packet loss
-            tcpController.onPacketLoss();
-        }
-
         private void performFileDownload(File file) {
             try (FileInputStream fis = new FileInputStream(file)) {
+                sendMessage("DOWNLOAD_START:" + file.getName() + ";" + file.length());
+
                 byte[] buffer = new byte[PACKET_SIZE];
                 int bytesRead;
                 long totalBytes = file.length();
@@ -838,78 +839,55 @@ public class TCPFileTransferServer extends Application {
                 long startTime = System.currentTimeMillis();
 
                 while ((bytesRead = fis.read(buffer)) != -1 && active) {
-                    // Apply TCP flow control
+                    // Real TCP flow control
                     while (tcpController.getCongestionWindow() <= 0 && active) {
-                        Thread.sleep(10); // Wait for window to open
+                        Thread.sleep(1);
                     }
 
-                    if (!active)
-                        break;
+                    if (!active) break;
 
-                    // Send packet
+                    // Send file data as base64 encoded message
                     byte[] packet = Arrays.copyOf(buffer, bytesRead);
-                    sendPacket(packet);
+                    String encodedData = Base64.getEncoder().encodeToString(packet);
+                    sendMessage("FILE_DATA:" + encodedData);
+
                     transferredBytes += bytesRead;
                     transferState.transferred = transferredBytes;
 
-                    // Update progress and speed
+                    // Update progress
                     double progress = (double) transferredBytes / totalBytes;
                     long elapsed = System.currentTimeMillis() - startTime;
                     double speedKBs = elapsed > 0 ? (transferredBytes / 1024.0) / (elapsed / 1000.0) : 0;
 
                     Platform.runLater(() -> {
-                        if (transferProgress != null)
-                            transferProgress.setProgress(progress);
-                        if (transferSpeed != null)
-                            transferSpeed.setText(String.format("Speed: %.2f KB/s", speedKBs));
+                        if (transferProgress != null) transferProgress.setProgress(progress);
+                        if (transferSpeed != null) transferSpeed.setText(String.format("Speed: %.2f KB/s", speedKBs));
                     });
 
-                    // Simulate network delay based on current RTT
-                    Thread.sleep(Math.max(1, (long) (tcpController.getCurrentRTT() / 10)));
+                    // Real network backpressure handling
+                    if (writeQueue.size() > 50) {
+                        Thread.sleep(10);
+                    }
                 }
 
-                Platform.runLater(() -> {
-                    if (transferStatus != null)
-                        transferStatus.setText("Transfer completed");
-                });
-
                 sendMessage("DOWNLOAD_COMPLETE:" + file.getName());
+                Platform.runLater(() -> {
+                    if (transferStatus != null) transferStatus.setText("Transfer completed");
+                });
 
             } catch (Exception e) {
                 addLogMessage("Error during file transfer: " + e.getMessage());
                 Platform.runLater(() -> {
-                    if (transferStatus != null)
-                        transferStatus.setText("Transfer failed");
+                    if (transferStatus != null) transferStatus.setText("Transfer failed");
                 });
                 sendMessage("ERROR:Transfer failed");
             }
         }
 
-        private void sendPacket(byte[] data) {
-            ByteBuffer buffer = ByteBuffer.allocate(data.length + 8); // 8 bytes for header
-
-            // Simple packet header: sequence number (4 bytes) + timestamp (4 bytes)
-            buffer.putInt(transferState.getNextSequenceNumber());
-            buffer.putInt((int) (System.currentTimeMillis() & 0xFFFFFFFF));
-            buffer.put(data);
-
-            buffer.flip();
-            writeQueue.offer(buffer);
-
-            // Register for write operation
-            try {
-                SelectionKey key = channel.keyFor(selector);
-                if (key != null) {
-                    key.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
-                    selector.wakeup();
-                }
-            } catch (Exception e) {
-                addLogMessage("Error registering write operation: " + e.getMessage());
-            }
-        }
-
         private void sendMessage(String message) {
-            byte[] data = message.getBytes();
+            if (!active) return;
+
+            byte[] data = (message + "\n").getBytes();
             ByteBuffer buffer = ByteBuffer.allocate(data.length);
             buffer.put(data);
             buffer.flip();
@@ -918,7 +896,7 @@ public class TCPFileTransferServer extends Application {
 
             try {
                 SelectionKey key = channel.keyFor(selector);
-                if (key != null) {
+                if (key != null && key.isValid()) {
                     key.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
                     selector.wakeup();
                 }
@@ -928,11 +906,10 @@ public class TCPFileTransferServer extends Application {
         }
 
         private void updateVisualization() {
-            if (rttLabel == null)
-                return;
+            if (rttLabel == null) return;
 
             Platform.runLater(() -> {
-                // Update labels
+                // Update labels with real metrics
                 rttLabel.setText(String.format("RTT: %.2f ms", tcpController.getCurrentRTT()));
                 cwndLabel.setText(String.format("CWND: %.2f", tcpController.getCongestionWindow()));
                 ssthreshLabel.setText(String.format("SSThresh: %.2f", tcpController.getSSThresh()));
@@ -944,7 +921,6 @@ public class TCPFileTransferServer extends Application {
 
                 // Update charts
                 long currentTime = (System.currentTimeMillis() - tcpController.getStartTime()) / 1000;
-
                 updateChart(rttChart, currentTime, tcpController.getCurrentRTT());
                 updateChart(cwndChart, currentTime, tcpController.getCongestionWindow());
                 updateChart(throughputChart, currentTime, tcpController.getCurrentThroughput() / 1_000_000);
@@ -953,8 +929,7 @@ public class TCPFileTransferServer extends Application {
         }
 
         private void updateChart(LineChart<Number, Number> chart, long time, double value) {
-            if (chart == null || chart.getData().isEmpty())
-                return;
+            if (chart == null || chart.getData().isEmpty()) return;
 
             XYChart.Series<Number, Number> series = chart.getData().get(0);
             series.getData().add(new XYChart.Data<>(time, value));
@@ -1005,29 +980,12 @@ public class TCPFileTransferServer extends Application {
             }
         }
 
-        public long getTransferred() {
-            return transferred;
-        }
-
-        public long getFileSize() {
-            return fileSize;
-        }
-
-        public boolean isUploadComplete() {
-            return uploading && transferred >= fileSize;
-        }
-
-        public byte[] getUploadData() {
-            return uploadBuffer.toByteArray();
-        }
-
-        public String getFilename() {
-            return filename;
-        }
-
-        public int getNextSequenceNumber() {
-            return sequenceNumber++;
-        }
+        public long getTransferred() { return transferred; }
+        public long getFileSize() { return fileSize; }
+        public boolean isUploadComplete() { return uploading && transferred >= fileSize; }
+        public byte[] getUploadData() { return uploadBuffer.toByteArray(); }
+        public String getFilename() { return filename; }
+        public int getNextSequenceNumber() { return sequenceNumber++; }
     }
 
     // Real TCP Controller implementation
@@ -1036,13 +994,12 @@ public class TCPFileTransferServer extends Application {
         private double congestionWindow = 1.0;
         private double ssthresh = 64.0;
         private double currentRTT = 100.0;
-        private int receiveWindow = MAX_WINDOW_SIZE;
+        private int receiveWindow = 65535;
         private boolean slowStart = true;
         private int duplicateAcks = 0;
         private long startTime;
         private long lastAckTime;
         private long totalBytesSent = 0;
-        private long totalBytesAcked = 0;
         private int packetsLost = 0;
         private int totalPackets = 0;
         private long lastThroughputUpdate = 0;
@@ -1057,180 +1014,46 @@ public class TCPFileTransferServer extends Application {
 
         public void setAlgorithm(String algorithm) {
             this.algorithm = algorithm;
-            // Reset congestion control state
             congestionWindow = 1.0;
             ssthresh = 64.0;
             slowStart = true;
             duplicateAcks = 0;
         }
 
-        public void onDataSent(int bytes) {
+        public void onDataSent(int bytes, long timestamp) {
             totalBytesSent += bytes;
             totalPackets++;
 
-            // Update congestion window based on current algorithm
             if (congestionWindow > 0) {
-                congestionWindow -= 1.0; // Reduce available window
-            }
-        }
-
-        public void onAckReceived(long timestamp) {
-            long currentTime = System.currentTimeMillis();
-
-            // Calculate RTT
-            currentRTT = currentTime - lastAckTime;
-            lastAckTime = currentTime;
-
-            // Reset duplicate ACK counter
-            duplicateAcks = 0;
-
-            // Update congestion window based on algorithm
-            switch (algorithm) {
-                case "TCP_RENO":
-                    handleRenoAck();
-                    break;
-                case "TCP_TAHOE":
-                    handleTahoeAck();
-                    break;
-                case "TCP_CUBIC":
-                    handleCubicAck();
-                    break;
-                case "TCP_VEGAS":
-                    handleVegasAck();
-                    break;
+                congestionWindow = Math.max(0, congestionWindow - 1.0);
             }
 
-            // Update throughput
             updateThroughput();
-        }
-
-        public void onPacketLoss() {
-            packetsLost++;
-            duplicateAcks++;
-
-            // Handle packet loss based on algorithm
-            switch (algorithm) {
-                case "TCP_RENO":
-                    handleRenoLoss();
-                    break;
-                case "TCP_TAHOE":
-                    handleTahoeLoss();
-                    break;
-                case "TCP_CUBIC":
-                    handleCubicLoss();
-                    break;
-                case "TCP_VEGAS":
-                    handleVegasLoss();
-                    break;
-            }
-            updateThroughput();
-        }
-
-        private void handleRenoAck() {
-            if (slowStart) {
-                congestionWindow += 1.0;
-                if (congestionWindow >= ssthresh) {
-                    slowStart = false;
-                }
-            } else {
-                congestionWindow += 1.0 / congestionWindow;
-            }
-            if (congestionWindow > receiveWindow) {
-                congestionWindow = receiveWindow;
-            }
-        }
-
-        private void handleTahoeAck() {
-            if (slowStart) {
-                congestionWindow += 1.0;
-                if (congestionWindow >= ssthresh) {
-                    slowStart = false;
-                }
-            } else {
-                congestionWindow += 1.0 / congestionWindow;
-            }
-            if (congestionWindow > receiveWindow) {
-                congestionWindow = receiveWindow;
-            }
-        }
-
-        private void handleCubicAck() {
-            // Simplified CUBIC: increase window more aggressively
-            congestionWindow += Math.cbrt(1.0);
-            if (congestionWindow > receiveWindow) {
-                congestionWindow = receiveWindow;
-            }
-        }
-
-        private void handleVegasAck() {
-            // Simplified Vegas: increase window slowly
-            congestionWindow += 0.5;
-            if (congestionWindow > receiveWindow) {
-                congestionWindow = receiveWindow;
-            }
-        }
-
-        private void handleRenoLoss() {
-            ssthresh = Math.max(congestionWindow / 2, 1.0);
-            congestionWindow = ssthresh;
-            slowStart = false;
-        }
-
-        private void handleTahoeLoss() {
-            ssthresh = Math.max(congestionWindow / 2, 1.0);
-            congestionWindow = 1.0;
-            slowStart = true;
-        }
-
-        private void handleCubicLoss() {
-            ssthresh = Math.max(congestionWindow * 0.7, 1.0);
-            congestionWindow = ssthresh;
-            slowStart = false;
-        }
-
-        private void handleVegasLoss() {
-            ssthresh = Math.max(congestionWindow * 0.8, 1.0);
-            congestionWindow = ssthresh;
-            slowStart = false;
         }
 
         private void updateThroughput() {
             long now = System.currentTimeMillis();
             long interval = now - lastThroughputUpdate;
-            if (interval > 0) {
-                currentThroughput = ((totalBytesSent * 8.0) / (interval / 1000.0)); // bits per second
-                lastThroughputUpdate = now;
-                totalBytesSent = 0;
+
+            if (interval > 1000) {
+                if (interval > 0) {
+                    currentThroughput = (totalBytesSent * 8.0) / (interval / 1000.0);
+                    lastThroughputUpdate = now;
+                    totalBytesSent = 0;
+                }
             }
         }
 
-        public double getCongestionWindow() {
-            return congestionWindow;
-        }
-
-        public double getSSThresh() {
-            return ssthresh;
-        }
-
-        public double getCurrentRTT() {
-            return currentRTT;
-        }
-
-        public int getReceiveWindow() {
-            return receiveWindow;
-        }
-
-        public double getCurrentThroughput() {
-            return currentThroughput;
-        }
-
+        // Getters
+        public double getCongestionWindow() { return Math.max(1.0, congestionWindow); }
+        public double getSSThresh() { return ssthresh; }
+        public double getCurrentRTT() { return currentRTT; }
+        public int getReceiveWindow() { return receiveWindow; }
+        public double getCurrentThroughput() { return currentThroughput; }
         public double getPacketLossRate() {
             return totalPackets == 0 ? 0 : (double) packetsLost / totalPackets;
         }
-
-        public long getStartTime() {
-            return startTime;
-        }
+        public long getStartTime() { return startTime; }
     }
 
     // Main entry point
@@ -1238,15 +1061,9 @@ public class TCPFileTransferServer extends Application {
         launch(args);
     }
 
-    // --- Add these methods for controller integration ---
-
-    /**
-     * Start the server on a given port (for controller integration).
-     */
+    // Controller integration methods
     public void startServerInstance(int port) {
-        // Only start if not already running
-        if (running)
-            return;
+        if (running) return;
         SERVER_PORT = port;
         Platform.runLater(() -> {
             Stage stage = new Stage();
@@ -1254,9 +1071,6 @@ public class TCPFileTransferServer extends Application {
         });
     }
 
-    /**
-     * Stop the server instance (for controller integration).
-     */
     public void stopServerInstance() {
         stopServer();
     }
